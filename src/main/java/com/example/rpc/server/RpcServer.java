@@ -1,13 +1,12 @@
 package com.example.rpc.server;
 
+import com.example.rpc.common.codec.RpcDecoder;
+import com.example.rpc.common.codec.RpcEncoder;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.serialization.ClassResolvers;
-import io.netty.handler.codec.serialization.ObjectDecoder;
-import io.netty.handler.codec.serialization.ObjectEncoder;
 
 /**
  * 服务端启动类：启动Netty服务，绑定端口，装配编解码器+handler
@@ -24,8 +23,8 @@ public class RpcServer {
                         @Override
                         protected void initChannel(SocketChannel ch) {
                             ch.pipeline()
-                                    .addLast(new ObjectEncoder())
-                                    .addLast(new ObjectDecoder(ClassResolvers.cacheDisabled(null)))
+                                    .addLast(new RpcDecoder())
+                                    .addLast(new RpcEncoder())
                                     .addLast(new RpcServerHandler());
                         }
                     });

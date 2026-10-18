@@ -1,7 +1,13 @@
 package com.example.rpc.client;
 
+import com.example.rpc.common.ProtocolConstants;
+import com.example.rpc.common.RpcMessage;
 import com.example.rpc.common.RpcRequest;
 import com.example.rpc.common.RpcResponse;
+import com.example.rpc.common.codec.RpcDecoder;
+import com.example.rpc.common.codec.RpcEncoder;
+import com.example.rpc.common.serializer.Serializer;
+import com.example.rpc.common.serializer.SerializerFactory;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -9,9 +15,6 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.serialization.ClassResolvers;
-import io.netty.handler.codec.serialization.ObjectDecoder;
-import io.netty.handler.codec.serialization.ObjectEncoder;
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.concurrent.DefaultThreadFactory;
 
@@ -55,8 +58,8 @@ public class RpcClient {
                     @Override
                     protected void initChannel(SocketChannel ch) {
                         ch.pipeline()
-                                .addLast(new ObjectEncoder())
-                                .addLast(new ObjectDecoder(ClassResolvers.cacheDisabled(null)))
+                                .addLast(new RpcDecoder())
+                                .addLast(new RpcEncoder())
                                 .addLast(new RpcClientHandler(RpcClient.this));
                     }
                 });
@@ -78,6 +81,14 @@ public class RpcClient {
         long requestId = requestIdGenerator.incrementAndGet();
         request.setRequestId(requestId);
 
+        Serializer serializer = SerializerFactory.get(ProtocolConstants.DEFAULT_SERIALIZE);
+        RpcMessage message = new RpcMessage();
+        message.setVersion(ProtocolConstants.VERSION);
+        message.setType(ProtocolConstants.TYPE_REQUEST);
+        message.setSerialize(serializer.getType());
+        message.setRequestId(requestId);
+        message.setBody(serializer.serialize(request));
+
         CompletableFuture<RpcResponse> future = new CompletableFuture<>();
         pending.put(requestId, future);
 
@@ -97,7 +108,7 @@ public class RpcClient {
             return future;
         }
 
-        ch.writeAndFlush(request);
+        ch.writeAndFlush(message);
         return future;
     }
 

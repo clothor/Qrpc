@@ -10,7 +10,7 @@ public class RpcRequest implements Serializable {
 
     private String interfaceName;
     private String methodName;
-    private Class<?>[] paramTypes;
+    private String[] paramTypeNames;
     private Object[] params;
     private long requestId;
 
@@ -18,8 +18,8 @@ public class RpcRequest implements Serializable {
     public void setInterfaceName(String interfaceName) { this.interfaceName = interfaceName; }
     public String getMethodName() { return methodName; }
     public void setMethodName(String methodName) { this.methodName = methodName; }
-    public Class<?>[] getParamTypes() { return paramTypes; }
-    public void setParamTypes(Class<?>[] paramTypes) { this.paramTypes = paramTypes; }
+    public String[] getParamTypeNames() { return paramTypeNames; }
+    public void setParamTypeNames(String[] paramTypeNames) { this.paramTypeNames = paramTypeNames; }
     public Object[] getParams() { return params; }
     public void setParams(Object[] params) { this.params = params; }
     public long getRequestId() { return requestId; }

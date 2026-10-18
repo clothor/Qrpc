@@ -4,6 +4,7 @@ import com.example.rpc.common.RpcRequest;
 import com.example.rpc.common.RpcResponse;
 
 import java.lang.reflect.Proxy;
+import java.util.Arrays;
 
 /**
  * 代理工厂，生成远程接口代理对象（JDK动态代理）
@@ -20,7 +21,7 @@ public class RpcProxyFactory {
                     RpcRequest request = new RpcRequest();
                     request.setInterfaceName(interfaceClass.getName());
                     request.setMethodName(method.getName());
-                    request.setParamTypes(method.getParameterTypes());
+                    request.setParamTypeNames(Arrays.stream(method.getParameterTypes()).map(Class::getName).toArray(String[]::new));
                     request.setParams(args);
 
                     RpcResponse response;
