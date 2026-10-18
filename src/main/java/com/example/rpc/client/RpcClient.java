@@ -6,6 +6,11 @@ import com.example.rpc.common.RpcRequest;
 import com.example.rpc.common.RpcResponse;
 import com.example.rpc.common.codec.RpcDecoder;
 import com.example.rpc.common.codec.RpcEncoder;
+import com.example.rpc.common.loadbalance.LoadBalancer;
+import com.example.rpc.common.loadbalance.RoundRobinLoadBalancer;
+import com.example.rpc.common.registry.Registry;
+import com.example.rpc.common.registry.ServiceDiscovery;
+import com.example.rpc.common.registry.ZookeeperRegistry;
 import com.example.rpc.common.serializer.Serializer;
 import com.example.rpc.common.serializer.SerializerFactory;
 import io.netty.bootstrap.Bootstrap;
@@ -18,6 +23,7 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.concurrent.DefaultThreadFactory;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,7 +32,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * RPC客户端：单例长连接复用，按 requestId 配对响应，时间轮统一管理超时
+ * RPC客户端：服务发现 + 负载均衡 + 长连接复用，按 requestId 配对响应
  */
 public class RpcClient {
 
@@ -36,17 +42,15 @@ public class RpcClient {
     private final Bootstrap bootstrap;
     private final HashedWheelTimer timer;
     private final long timeoutMillis;
-    private final String host;
-    private final int port;
+
+    private final ServiceDiscovery discovery;
+    private final LoadBalancer loadBalancer = new RoundRobinLoadBalancer();
 
     private final Map<Long, CompletableFuture<RpcResponse>> pending = new ConcurrentHashMap<>();
+    private final Map<String, Channel> channels = new ConcurrentHashMap<>();
     private final AtomicLong requestIdGenerator = new AtomicLong();
 
-    private volatile Channel channel;
-
-    private RpcClient(String host, int port, long timeoutMillis) {
-        this.host = host;
-        this.port = port;
+    private RpcClient(String zkAddress, long timeoutMillis) {
         this.timeoutMillis = timeoutMillis;
         this.group = new NioEventLoopGroup(0, new DefaultThreadFactory("rpc-client", true));
         this.timer = new HashedWheelTimer(new DefaultThreadFactory("rpc-timer", true));
@@ -63,13 +67,14 @@ public class RpcClient {
                                 .addLast(new RpcClientHandler(RpcClient.this));
                     }
                 });
+        this.discovery = new ServiceDiscovery(new ZookeeperRegistry(zkAddress));
     }
 
     public static RpcClient getInstance() {
         if (instance == null) {
             synchronized (RpcClient.class) {
                 if (instance == null) {
-                    instance = new RpcClient("127.0.0.1", 8888, 3000);
+                    instance = new RpcClient("127.0.0.1:2181", 3000);
                     Runtime.getRuntime().addShutdownHook(new Thread(instance::shutdown));
                 }
             }
@@ -77,7 +82,7 @@ public class RpcClient {
         return instance;
     }
 
-    public CompletableFuture<RpcResponse> send(RpcRequest request) {
+    public CompletableFuture<RpcResponse> send(String serviceName, RpcRequest request) {
         long requestId = requestIdGenerator.incrementAndGet();
         request.setRequestId(requestId);
 
@@ -99,9 +104,18 @@ public class RpcClient {
             }
         }, timeoutMillis, TimeUnit.MILLISECONDS);
 
+        discovery.subscribe(serviceName);
+        List<String> addresses = discovery.getAddresses(serviceName);
+        if (addresses.isEmpty()) {
+            pending.remove(requestId);
+            future.completeExceptionally(new IllegalStateException("没有可用的服务节点: " + serviceName));
+            return future;
+        }
+
+        String address = loadBalancer.select(addresses);
         Channel ch;
         try {
-            ch = getChannel();
+            ch = getOrCreateChannel(address);
         } catch (Exception e) {
             pending.remove(requestId);
             future.completeExceptionally(e);
@@ -112,25 +126,31 @@ public class RpcClient {
         return future;
     }
 
-    private Channel getChannel() {
-        Channel ch = channel;
+    private Channel getOrCreateChannel(String address) {
+        Channel ch = channels.get(address);
         if (ch != null && ch.isActive()) {
             return ch;
         }
         synchronized (this) {
-            if (channel == null || !channel.isActive()) {
-                channel = connect();
+            ch = channels.get(address);
+            if (ch != null && ch.isActive()) {
+                return ch;
             }
-            return channel;
+            Channel newChannel = connect(address);
+            channels.put(address, newChannel);
+            return newChannel;
         }
     }
 
-    private Channel connect() {
+    private Channel connect(String address) {
+        String[] parts = address.split(":");
+        String host = parts[0];
+        int port = Integer.parseInt(parts[1]);
         try {
             return bootstrap.connect(host, port).sync().channel();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("连接RPC服务失败: " + host + ":" + port, e);
+            throw new RuntimeException("连接RPC服务失败: " + address, e);
         }
     }
 
@@ -141,7 +161,8 @@ public class RpcClient {
         }
     }
 
-    void onChannelInactive() {
+    void onChannelInactive(Channel channel) {
+        channels.values().removeIf(ch -> ch == channel);
         RuntimeException ex = new IllegalStateException("RPC连接已断开");
         for (CompletableFuture<RpcResponse> future : pending.values()) {
             future.completeExceptionally(ex);
@@ -151,8 +172,8 @@ public class RpcClient {
 
     public void shutdown() {
         timer.stop();
-        if (channel != null) {
-            channel.close();
+        for (Channel ch : channels.values()) {
+            ch.close();
         }
         group.shutdownGracefully();
     }

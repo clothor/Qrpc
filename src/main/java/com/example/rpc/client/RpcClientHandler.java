@@ -28,7 +28,7 @@ public class RpcClientHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        client.onChannelInactive();
+        client.onChannelInactive(ctx.channel());
     }
 
     @Override

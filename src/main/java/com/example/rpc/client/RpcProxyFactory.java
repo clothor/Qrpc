@@ -26,7 +26,7 @@ public class RpcProxyFactory {
 
                     RpcResponse response;
                     try {
-                        response = CLIENT.send(request).get();
+                        response = CLIENT.send(interfaceClass.getName(), request).get();
                     } catch (Exception e) {
                         throw new RuntimeException("RPC调用失败: " + method.getName(), e);
                     }
