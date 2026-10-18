@@ -10,6 +10,8 @@ import java.lang.reflect.Proxy;
  */
 public class RpcProxyFactory {
 
+    private static final RpcClient CLIENT = RpcClient.getInstance();
+
     public static <T> T getProxy(Class<T> interfaceClass) {
         return (T) Proxy.newProxyInstance(
                 interfaceClass.getClassLoader(),
@@ -21,8 +23,12 @@ public class RpcProxyFactory {
                     request.setParamTypes(method.getParameterTypes());
                     request.setParams(args);
 
-                    RpcClient rpcClient = new RpcClient();
-                    RpcResponse response = rpcClient.send(request);
+                    RpcResponse response;
+                    try {
+                        response = CLIENT.send(request).get();
+                    } catch (Exception e) {
+                        throw new RuntimeException("RPC调用失败: " + method.getName(), e);
+                    }
                     if (response.getException() != null) {
                         throw response.getException();
                     }

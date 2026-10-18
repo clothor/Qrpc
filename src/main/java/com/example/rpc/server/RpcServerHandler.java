@@ -26,6 +26,7 @@ public class RpcServerHandler extends ChannelInboundHandlerAdapter {
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         RpcRequest request = (RpcRequest) msg;
         RpcResponse response = new RpcResponse();
+        response.setRequestId(request.getRequestId());
         try {
             Object serviceBean = SERVICE_MAP.get(request.getInterfaceName());
             Method method = serviceBean.getClass().getMethod(request.getMethodName(), request.getParamTypes());
